@@ -100,21 +100,21 @@ class PolicyValueNet():
         # 输入一个棋盘
         # 输出一个(行为，概率)的list，每一个行为都是当前有效的走子
         # 同时会输出场面分数
-        legal_positions = board.availables
-        current_state = np.ascontiguousarray(board.current_state().reshape(-1, 4, self.board_width, self.board_height))
+        legal_positions = board.availables #获得可行解
+        current_state = np.ascontiguousarray(board.current_state().reshape(-1, 4, self.board_width, self.board_height)) # 获得当前的局面
         if self.use_gpu:
-            log_act_probs, value = self.policy_value_net(Variable(torch.from_numpy(current_state)).cuda().float())
-            act_probs = np.exp(log_act_probs.data.cpu().numpy().flatten())
+            log_act_probs, value = self.policy_value_net(Variable(torch.from_numpy(current_state)).cuda().float()) # 将当前局面输入价值网络得到走子概率和局面估计
+            act_probs = np.exp(log_act_probs.data.cpu().numpy().flatten()) # 从log softmax还原softmax概率
         else:
-            log_act_probs, value = self.policy_value_net(Variable(torch.from_numpy(current_state)).float())
+            log_act_probs, value = self.policy_value_net(Variable(torch.from_numpy(current_state)).float()) 
             act_probs = np.exp(log_act_probs.data.numpy().flatten())
-        act_probs = zip(legal_positions, act_probs[legal_positions])
+        act_probs = zip(legal_positions, act_probs[legal_positions]) # 筛选出可行解和对应的概率
         value = value.data[0][0]
         return act_probs, value
 
     def train_step(self, state_batch, mcts_probs, winner_batch, lr):
         """perform a training step"""
-        # wrap in Variable
+        # 包装变量，格式转换
         if self.use_gpu:
             state_batch = Variable(torch.FloatTensor(state_batch).cuda())
             mcts_probs = Variable(torch.FloatTensor(mcts_probs).cuda())
@@ -124,24 +124,25 @@ class PolicyValueNet():
             mcts_probs = Variable(torch.FloatTensor(mcts_probs))
             winner_batch = Variable(torch.FloatTensor(winner_batch))
 
-        # zero the parameter gradients
+        # 清空累计的梯度
         self.optimizer.zero_grad()
-        # set learning rate
+        # 设置学习率
         set_learning_rate(self.optimizer, lr)
 
-        # forward
+        # 使用价值网络算出走子概率和局面评估值
         log_act_probs, value = self.policy_value_net(state_batch)
-        # define the loss = (z - v)^2 - pi^T * log(p) + c||theta||^2 (Note: the L2 penalty is incorporated in optimizer)
-        value_loss = F.mse_loss(value.view(-1), winner_batch)
-        policy_loss = -torch.mean(torch.sum(mcts_probs*log_act_probs, 1))
+        # loss = (z - v)^2 - pi^T * log(p) + c||theta||^2 （优化算法自带L2正则项）
+        value_loss = F.mse_loss(value.view(-1), winner_batch) # 局面评估值的loss，将局面评估值（-1,1）和真实对局结果（1或者-1）进行作差平方得到loss
+        policy_loss = -torch.mean(torch.sum(mcts_probs*log_act_probs, 1)) # 走子的loss，使用交叉熵
         loss = value_loss + policy_loss
-        # backward and optimize
+        # 进行后向传播
         loss.backward()
         self.optimizer.step()
-        # calc policy entropy, for monitoring only
+        # 计算策略的熵，仅用于监控
         entropy = -torch.mean(torch.sum(torch.exp(log_act_probs) * log_act_probs, 1))
         return loss.data[0], entropy.data[0]
 
     def get_policy_param(self):
+        # 返回策略价值网络的参数
         net_params = self.policy_value_net.state_dict()
         return net_params
