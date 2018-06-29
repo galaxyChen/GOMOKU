@@ -18,20 +18,22 @@ class TreeNode(object):
     """A node in the MCTS tree. Each node keeps track of its own value Q, prior probability P, and
     its visit-count-adjusted prior score u.
     """
+    # 蒙特卡洛树的节点类
 
     def __init__(self, parent, prior_p):
-        self._parent = parent
-        self._children = {}  # a map from action to TreeNode
-        self._n_visits = 0
-        self._Q = 0
-        self._u = 0
-        self._P = prior_p
+        self._parent = parent # 父节点
+        self._children = {}  # 子节点集合
+        self._n_visits = 0 # 访问次数
+        self._Q = 0 # 节点平均行为价值Q值
+        self._u = 0 # U值
+        self._P = prior_p # 被选择的先验概率P值
 
     def expand(self, action_priors):
         """Expand tree by creating new children.
         action_priors -- output from policy function - a list of tuples of actions
             and their prior probability according to the policy function.
         """
+        # 使用策略网络输出的走子概率作为初始的先验概率，将每一个行为作为子节点进行扩展
         for action, prob in action_priors:
             if action not in self._children:
                 self._children[action] = TreeNode(self, prob)
