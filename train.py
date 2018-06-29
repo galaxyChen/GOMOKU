@@ -21,35 +21,37 @@ import datetime
 
 class TrainPipeline():
     def __init__(self, init_model=None):
-        # params of the board and the game
-        self.board_width = 8  #6
-        self.board_height = 8 #6
-        self.n_in_row = 5  #4
+        # 游戏环境设定
+        self.board_width = 8  #棋盘宽
+        self.board_height = 8 #棋盘高
+        self.n_in_row = 5  #五子棋
+        # 初始化棋盘对象
         self.board = Board(width=self.board_width, height=self.board_height, n_in_row=self.n_in_row)
+        # 初始化游戏对象
         self.game = Game(self.board)
-        # training params 
-        self.learn_rate = 5e-3
-        self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
-        self.temp = 1.0 # the temperature param
-        self.n_playout = 400 # num of simulations for each move
-        self.c_puct = 5
-        self.buffer_size = 10000
-        self.batch_size = 512 # mini-batch size for training
-        self.data_buffer = deque(maxlen=self.buffer_size)        
-        self.play_batch_size = 1 
-        self.epochs = 5 # num of train_steps for each update
-        self.kl_targ = 0.025
-        self.check_freq = 50 
-        self.game_batch_num = 1500
-        self.best_win_ratio = 0.0
-        # num of simulations used for the pure mcts, which is used as the opponent to evaluate the trained policy
+        # 训练参数 
+        self.learn_rate = 5e-3 #学习率
+        self.lr_multiplier = 1.0  # 根据kl散度自动计算学习率的参数
+        self.temp = 1.0 # 温度参数，蒙特卡洛树的参数，控制搜索的程度
+        self.n_playout = 400 # 每一步模拟的次数
+        self.c_puct = 5 # 蒙特卡洛模拟的常数值
+        self.buffer_size = 10000 # 对局缓存大小
+        self.batch_size = 512 # 每次训练的mini-batch
+        self.data_buffer = deque(maxlen=self.buffer_size) #deque:python的双向操作的队列，用来操作缓存中的对局        
+        self.play_batch_size = 1 # 每次收集一局游戏
+        self.epochs = 5 # 每5次训练进行一次参数更新
+        self.kl_targ = 0.025 #kl阈值
+        self.check_freq = 50 # 每50轮检查一次性能，更新最优模型
+        self.game_batch_num = 1 #一共跑1500轮
+        self.best_win_ratio = 0.0 #最好的胜率
+        # 纯蒙特卡洛树的模拟次数，作为训练后模型的对手
         self.pure_mcts_playout_num = 1000  
         if init_model:
-            # start training from an initial policy-value net
-            policy_param = pickle.load(open(init_model, 'rb')) 
-            self.policy_value_net = PolicyValueNet(self.board_width, self.board_height, net_params = policy_param)
+            # 从一个现有的模型继续训练
+            policy_param = pickle.load(open(init_model, 'rb')) #读取模型参数
+            self.policy_value_net = PolicyValueNet(self.board_width, self.board_height, net_params = policy_param) #使用模型参数初始化价值策略网络
         else:
-            # start training from a new policy-value net
+            # 训练一个全新的模型
             self.policy_value_net = PolicyValueNet(self.board_width, self.board_height) 
         self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn, c_puct=self.c_puct, n_playout=self.n_playout, is_selfplay=1)
 
