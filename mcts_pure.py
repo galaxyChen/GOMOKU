@@ -10,14 +10,14 @@ from operator import itemgetter
 
 def rollout_policy_fn(board):
     """rollout_policy_fn -- a coarse, fast version of policy_fn used in the rollout phase."""
-    # rollout randomly
+    # 随机返回走子概率
     action_probs = np.random.rand(len(board.availables))
     return zip(board.availables, action_probs)    
 
 def policy_value_fn(board):
     """a function that takes in a state and outputs a list of (action, probability)
     tuples and a score for the state"""
-    # return uniform probabilities and 0 score for pure MCTS
+    # 返回一个均匀分布的走子概率
     action_probs = np.ones(len(board.availables))/len(board.availables)
     return zip(board.availables, action_probs), 0
 
@@ -39,6 +39,7 @@ class TreeNode(object):
         action_priors -- output from policy function - a list of tuples of actions
             and their prior probability according to the policy function.
         """
+        # 根据行为来扩展子节点
         for action, prob in action_priors:
             if action not in self._children:
                 self._children[action] = TreeNode(self, prob)
@@ -48,6 +49,7 @@ class TreeNode(object):
         Returns:
         A tuple of (action, next_node)
         """
+        # 选择最大概率的子节点
         return max(self._children.items(), key=lambda act_node: act_node[1].get_value(c_puct)) #self._children.iteritems()
 
     def update(self, leaf_value):
@@ -55,15 +57,15 @@ class TreeNode(object):
         Arguments:
         leaf_value -- the value of subtree evaluation from the current player's perspective.        
         """
-        # Count visit.
+        # 计算访问次数
         self._n_visits += 1
-        # Update Q, a running average of values for all visits.
+        # 更新Q值
         self._Q += 1.0*(leaf_value - self._Q) / self._n_visits
 
     def update_recursive(self, leaf_value):
         """Like a call to update(), but applied recursively for all ancestors.
         """
-        # If it is not root, this node's parent should be updated first.
+        # 递归更新节点的值
         if self._parent:
             self._parent.update_recursive(-leaf_value)
         self.update(leaf_value)
@@ -74,6 +76,7 @@ class TreeNode(object):
         c_puct -- a number in (0, inf) controlling the relative impact of values, Q, and
             prior probability, P, on this node's score.
         """
+        # 返回节点Q+U的值
         self._u = c_puct * self._P * np.sqrt(self._parent._n_visits) / (1 + self._n_visits)
         return self._Q + self._u
 
@@ -98,6 +101,7 @@ class MCTS(object):
         c_puct -- a number in (0, inf) that controls how quickly exploration converges to the
             maximum-value policy, where a higher value means relying on the prior more
         """
+        # 普通蒙特卡洛树搜索的初始化
         self._root = TreeNode(None, 1.0)
         self._policy = policy_value_fn
         self._c_puct = c_puct
@@ -110,23 +114,23 @@ class MCTS(object):
         Arguments:
         state -- a copy of the state.
         """
+        # 对局函数
         node = self._root
         while(1): 
             if node.is_leaf():
-
                 break                
-            # Greedily select next move.
+            # 选择概率最大的行动
             action, node = node.select(self._c_puct)            
             state.do_move(action)
 
         action_probs, _ = self._policy(state)
-        # Check for end of game
+        # 检查游戏是否结束
         end, winner = state.game_end()
         if not end:
             node.expand(action_probs)
-        # Evaluate the leaf node by random rollout
+        # 通过随机下棋来评估当前的策略
         leaf_value = self._evaluate_rollout(state)
-        # Update value and visit count of nodes in this traversal.
+        # 更新节点的值
         node.update_recursive(-leaf_value)
 
     def _evaluate_rollout(self, state, limit=1000):
