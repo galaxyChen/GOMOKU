@@ -59,14 +59,17 @@ class TrainPipeline():
         """
         augment the data set by rotation and flipping
         play_data: [(state, mcts_prob, winner_z), ..., ...]"""
+
+        #通过选择和翻转进行数据增强
         extend_data = []
         for state, mcts_porb, winner in play_data:
+            # 对于每一个局面的蒙特卡洛树和赢家
             for i in [1,2,3,4]:
-                # rotate counterclockwise 
+                # 逆时针旋转
                 equi_state = np.array([np.rot90(s,i) for s in state])
                 equi_mcts_prob = np.rot90(np.flipud(mcts_porb.reshape(self.board_height, self.board_width)), i)
                 extend_data.append((equi_state, np.flipud(equi_mcts_prob).flatten(), winner))
-                # flip horizontally
+                # 水平翻转
                 equi_state = np.array([np.fliplr(s) for s in equi_state])
                 equi_mcts_prob = np.fliplr(equi_mcts_prob)
                 extend_data.append((equi_state, np.flipud(equi_mcts_prob).flatten(), winner))
@@ -74,33 +77,42 @@ class TrainPipeline():
                 
     def collect_selfplay_data(self, n_games=1):
         """collect self-play data for training"""
+        # 收集自我对战的数据
         for i in range(n_games):
+            # 调用自我对战的函数，或者胜者和对局数据
             winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp)
-            play_data_zip2list = list(play_data)  # add by haward
-            self.episode_len = len(play_data_zip2list)
-            # augment the data
+            play_data_zip2list = list(play_data) # 将对局数据转换成list
+            self.episode_len = len(play_data_zip2list) # 保存对局局面的长度
+            # 数据增强
             play_data = self.get_equi_data(play_data_zip2list)
             self.data_buffer.extend(play_data)
                         
     def policy_update(self):
         """update the policy-value net"""
-        mini_batch = random.sample(self.data_buffer, self.batch_size)
-        state_batch = [data[0] for data in mini_batch]
-        mcts_probs_batch = [data[1] for data in mini_batch]
-        winner_batch = [data[2] for data in mini_batch]            
-        old_probs, old_v = self.policy_value_net.policy_value(state_batch) 
+        # 用于更新策略价值网络
+        # 在这个函数中进行策略价值网络的训练，并输出这一轮训练前后的性能指标
+        mini_batch = random.sample(self.data_buffer, self.batch_size) # 随机抽取mini_batch
+        state_batch = [data[0] for data in mini_batch] # 对局
+        mcts_probs_batch = [data[1] for data in mini_batch] # 蒙特卡洛概率
+        winner_batch = [data[2] for data in mini_batch] # 胜者
+        old_probs, old_v = self.policy_value_net.policy_value(state_batch) # 直接由神经网络预测走子概率和局面评估
         for i in range(self.epochs): 
+            # 对于每一轮
+            # 策略价值网络的训练
             loss, entropy = self.policy_value_net.train_step(state_batch, mcts_probs_batch, winner_batch, self.learn_rate*self.lr_multiplier)
+            # 获得训练后的走子概率和局面评估
             new_probs, new_v = self.policy_value_net.policy_value(state_batch)
+            # 计算新旧走子概率的kl散度
             kl = np.mean(np.sum(old_probs * (np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)), axis=1))  
-            if kl > self.kl_targ * 4:   # early stopping if D_KL diverges badly
+            if kl > self.kl_targ * 4: 
+            # kl值严重偏差，提前结束
                 break
-        # adaptively adjust the learning rate
+        # 调整学习率
         if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
             self.lr_multiplier /= 1.5
         elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
             self.lr_multiplier *= 1.5
-            
+        # 计算新旧两个概率分布的拟合优度（即相关系数的平方）
         explained_var_old =  1 - np.var(np.array(winner_batch) - old_v.flatten())/np.var(np.array(winner_batch))
         explained_var_new = 1 - np.var(np.array(winner_batch) - new_v.flatten())/np.var(np.array(winner_batch))        
         print("kl:{:.5f},lr_multiplier:{:.3f},loss:{},entropy:{},explained_var_old:{:.3f},explained_var_new:{:.3f}".format(
@@ -112,31 +124,37 @@ class TrainPipeline():
         Evaluate the trained policy by playing games against the pure MCTS player
         Note: this is only for monitoring the progress of training
         """
-        current_mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn, c_puct=self.c_puct, n_playout=self.n_playout)
-        pure_mcts_player = MCTS_Pure(c_puct=5, n_playout=self.pure_mcts_playout_num)
-        win_cnt = defaultdict(int)
-        for i in range(n_games):
+        # 将模型与纯蒙特卡洛树模拟进行对比
+        # 仅用于训练时的监控
+        current_mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn, c_puct=self.c_puct, n_playout=self.n_playout)# 利用当前的模型建立一个玩家
+        pure_mcts_player = MCTS_Pure(c_puct=5, n_playout=self.pure_mcts_playout_num)# 建立一个纯蒙特卡洛树搜索的玩家
+        win_cnt = defaultdict(int) # 记录胜的和负的次数
+        for i in range(n_games):# 进行10场对局
             winner = self.game.start_play(current_mcts_player, pure_mcts_player, start_player=i%2, is_shown=0)
             win_cnt[winner] += 1
-        win_ratio = 1.0*(win_cnt[1] + 0.5*win_cnt[-1])/n_games
+        win_ratio = 1.0*(win_cnt[1] + 0.5*win_cnt[-1])/n_games # 计算平均胜率
         print("num_playouts:{}, win: {}, lose: {}, tie:{}".format(self.pure_mcts_playout_num, win_cnt[1], win_cnt[2], win_cnt[-1]))
         return win_ratio
     
     def run(self):
         """run the training pipeline"""
         try:
-            for i in range(self.game_batch_num):                
+            for i in range(self.game_batch_num):    # 每一个game_batch
+                # 收集自我对局数据            
                 self.collect_selfplay_data(self.play_batch_size)
-                print("batch i:{}, episode_len:{}".format(i+1, self.episode_len))                
+                print("batch i:{}, episode_len:{}".format(i+1, self.episode_len))              
+                # 如果当前的数据缓冲区大于预设的batch_size，更新策略价值网络
                 if len(self.data_buffer) > self.batch_size:
                     loss, entropy = self.policy_update()                    
-                # check the performance of the current model锛宎nd save the model params
+                # 每check_freq轮检查一下当前的策略网络和历史最优的对比
                 if (i+1) % self.check_freq == 0:
+                    # 保存现在的模型
                     print("current self-play batch: {}".format(i+1))
                     win_ratio = self.policy_evaluate()
                     net_params = self.policy_value_net.get_policy_param() # get model params
                     pickle.dump(net_params, open('current_policy_8_8_5_new.model', 'wb'), pickle.HIGHEST_PROTOCOL) # save model param to file
                     if win_ratio > self.best_win_ratio: 
+                        # 当前的模型比历史最优的要好，更新历史最优的模型
                         print("New best policy!!!!!!!!")
                         self.best_win_ratio = win_ratio
                         pickle.dump(net_params, open('best_policy_8_8_5_new.model', 'wb'), pickle.HIGHEST_PROTOCOL) # update the best_policy
