@@ -156,9 +156,10 @@ class MCTS(object):
             state_copy = copy.deepcopy(state)#深拷贝一个对局状态，以防后续操作影响原来的变量内容
             self._playout(state_copy)#进行一次对局
 
-        # 基于访问次数计算走子概率
+        # 基于访问次数计算行为概率
         act_visits = [(act, node._n_visits) for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
+        # 走的次数越多，这一步的概率就越大
         act_probs = softmax(1.0/temp * np.log(np.array(visits) + 1e-10))       
          
         return acts, act_probs
